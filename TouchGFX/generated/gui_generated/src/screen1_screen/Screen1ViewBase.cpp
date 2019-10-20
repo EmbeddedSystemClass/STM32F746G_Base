@@ -12,21 +12,21 @@ Screen1ViewBase::Screen1ViewBase() :
     bg.setPosition(0, 0, 480, 272);
     bg.setColor(touchgfx::Color::getColorFrom24BitRGB(255, 255, 255));
 
-    buttonGreen.setXY(155, 106);
+    buttonGreen.setXY(155, 104);
     buttonGreen.setBitmaps(Bitmap(BITMAP_BLUE_BUTTONS_ROUND_EDGE_SMALL_ID), Bitmap(BITMAP_BLUE_BUTTONS_ROUND_EDGE_SMALL_PRESSED_ID));
     buttonGreen.setLabelText(TypedText(T_SINGLEUSEID1));
     buttonGreen.setLabelColor(touchgfx::Color::getColorFrom24BitRGB(255, 255, 255));
     buttonGreen.setLabelColorPressed(touchgfx::Color::getColorFrom24BitRGB(255, 255, 255));
     buttonGreen.setAction(buttonCallback);
 
-    buttonRed.setXY(155, 28);
+    buttonRed.setXY(155, 30);
     buttonRed.setBitmaps(Bitmap(BITMAP_BLUE_BUTTONS_ROUND_EDGE_SMALL_ID), Bitmap(BITMAP_BLUE_BUTTONS_ROUND_EDGE_SMALL_PRESSED_ID));
     buttonRed.setLabelText(TypedText(T_SINGLEUSEID2));
     buttonRed.setLabelColor(touchgfx::Color::getColorFrom24BitRGB(255, 255, 255));
     buttonRed.setLabelColorPressed(touchgfx::Color::getColorFrom24BitRGB(255, 255, 255));
     buttonRed.setAction(buttonCallback);
 
-    buttonBlue.setXY(155, 187);
+    buttonBlue.setXY(155, 182);
     buttonBlue.setBitmaps(Bitmap(BITMAP_BLUE_BUTTONS_ROUND_EDGE_SMALL_ID), Bitmap(BITMAP_BLUE_BUTTONS_ROUND_EDGE_SMALL_PRESSED_ID));
     buttonBlue.setLabelText(TypedText(T_SINGLEUSEID3));
     buttonBlue.setLabelColor(touchgfx::Color::getColorFrom24BitRGB(255, 255, 255));
