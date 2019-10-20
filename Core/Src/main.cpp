@@ -83,6 +83,7 @@ UART_HandleTypeDef huart6;
 osThreadId defaultTaskHandle;
 osThreadId dummyHandle;
 osThreadId sdTaskHandle;
+osThreadId clientTaskHandle;
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -116,6 +117,7 @@ extern void GRAPHICS_MainTask(void);
 void StartDefaultTask(void const * argument);
 void dummyTask(void const * argument);
 void StartSDTask(void const * argument);
+void HTTP_Client_Task(void const * argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -215,6 +217,10 @@ int main(void)
 	/* definition and creation of sdTask */
 	osThreadDef(sdTask, StartSDTask, osPriorityBelowNormal, 0, 512);
 	sdTaskHandle = osThreadCreate(osThread(sdTask), NULL);
+
+	/* definition and creation of clientTask */
+	osThreadDef(clientTask, HTTP_Client_Task, osPriorityHigh, 0, 512);
+	clientTaskHandle = osThreadCreate(osThread(clientTask), NULL);
 
 	/* USER CODE BEGIN RTOS_THREADS */
 	/* add threads, ... */
@@ -1408,7 +1414,6 @@ static void MX_GPIO_Init(void)
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void const * argument)
 {
-
 	/* Graphic application */
 	GRAPHICS_MainTask();
 	/* USER CODE BEGIN 5 */
@@ -1573,6 +1578,204 @@ void StartSDTask(void const * argument)
 		osDelay(100);
 	}
 	/* USER CODE END StartSDTask */
+}
+
+/* USER CODE BEGIN Header_HTTP_Client_Task */
+/**
+ * @brief Function implementing the clientTask thread.
+ * @param argument: Not used
+ * @retval None
+ */
+/* USER CODE END Header_HTTP_Client_Task */
+void HTTP_Client_Task(void const * argument)
+{
+	/* USER CODE BEGIN HTTP_Client_Task */
+	RTOS_TASK_START();
+
+	/* wait for other tasks to start */
+	osDelay(100);
+
+	/* Queue PV */
+	uint8_t queueData = 0;
+	lwhttp_message_header_t* content_type_header_ptr;
+
+	static lwhttp_request_t client_request;
+	static lwhttp_response_t client_response;
+	BaseType_t xResultHTTP = pdFAIL;
+
+	/* LwIP PV */
+	struct netif* netif = (struct netif*)argument;
+	ip_addr_t ipaddr;
+	ip_addr_t netmask;
+	ip_addr_t gw;
+	struct dhcp *dhcp;
+
+	/* init code for LWIP */
+	MX_LWIP_Init();
+
+	RTOS_TASK_READY();
+	//DBG_RTOS("xPortGetFreeHeapSize = %d\r\n", xPortGetFreeHeapSize());
+
+	/* Infinite loop */
+	for(;;)
+	{
+		switch (DHCP_state)
+		{
+		case DHCP_OFF:
+		{
+			/* Check interface status */
+			if (netif_is_up(netif))
+			{
+				setDHCP_State(DHCP_START);
+			}
+			else
+			{
+				osDelay(100);
+			}
+		}
+		break;
+		case DHCP_START:
+		{
+			ip_addr_set_zero_ip4(&netif->ip_addr);
+			ip_addr_set_zero_ip4(&netif->netmask);
+			ip_addr_set_zero_ip4(&netif->gw);
+			dhcp_start(netif);
+			setDHCP_State(DHCP_WAIT_ADDRESS);
+			DBG_DHCP("Looking for server\r\n");
+		}
+		break;
+		case DHCP_WAIT_ADDRESS:
+		{
+			if (dhcp_supplied_address(netif))
+			{
+				setDHCP_State(DHCP_ADDRESS_ASSIGNED);
+				DBG_DHCP("Dynamic IP address (%s)\r\n", ip4addr_ntoa((const ip4_addr_t *)&netif->ip_addr));
+			}
+			else
+			{
+				dhcp = (struct dhcp *)netif_get_client_data(netif, LWIP_NETIF_CLIENT_DATA_INDEX_DHCP);
+
+				/* DHCP timeout */
+				if (dhcp->tries > MAX_DHCP_TRIES)
+				{
+					setDHCP_State(DHCP_TIMEOUT);
+
+					/* Stop DHCP */
+					dhcp_stop(netif);
+
+					/* Static address used */
+					IP_ADDR4(&ipaddr, IP_ADDR0 ,IP_ADDR1 , IP_ADDR2 , IP_ADDR3 );
+					IP_ADDR4(&netmask, NETMASK_ADDR0, NETMASK_ADDR1, NETMASK_ADDR2, NETMASK_ADDR3);
+					IP_ADDR4(&gw, GW_ADDR0, GW_ADDR1, GW_ADDR2, GW_ADDR3);
+					netif_set_addr(netif, ip_2_ip4(&ipaddr), ip_2_ip4(&netmask), ip_2_ip4(&gw));
+
+					DBG_DHCP("Timeout\r\n");
+					DBG_DHCP("Static IP address (%s)\r\n", ip4addr_ntoa((const ip4_addr_t *)&netif->ip_addr));
+				}
+			}
+		}
+		break;
+		case DHCP_LINK_DOWN:
+		{
+			/* Stop DHCP */
+			dhcp_stop(netif);
+			setDHCP_State(DHCP_OFF);
+		}
+		break;
+		case DHCP_ADDRESS_ASSIGNED:
+		{
+#if 0
+			if(xQueueReceive(tcpQueueHandle, &queueData, 0) == pdTRUE)
+			{
+				DBG_QUEUE("tcpQueueHandle: %d\r\n", queueData);
+
+				sd_log_entry_t xEntry;
+
+				if (FR_OK == sd_log_entry_get_pending(&xEntry))
+				{
+					queueData = (uint8_t)xEntry.ulData;
+				}
+				else
+				{
+					DBG_LWIP("Failed to get pending!\r\n");
+				}
+
+				/* LwHTTP Inits */
+				lwhttp_request_init(&client_request);
+				lwhttp_response_init(&client_response);
+
+				/* Sen POST request */
+				if (pdTRUE == post_thingspeak(&client_request, &client_response, queueData))
+				{
+					/* Run LwHTTP Request Parser */
+					xResultHTTP = lwhttp_request_parse(&client_request);
+					if (pdTRUE != xResultHTTP)
+					{
+						DBG_LWIP("Failed to parse request! (ret = %d)\r\n", xResultHTTP);
+					}
+					http_print_msg((lwhttp_message_t*)&client_request);
+
+					/* Run LwHTTP Response Parser */
+					xResultHTTP = lwhttp_response_parse(&client_response);
+					if (pdTRUE != xResultHTTP)
+					{
+						DBG_LWIP("Failed to parse response! (ret = %d)\r\n", xResultHTTP);
+					}
+					http_print_msg((lwhttp_message_t*)&client_response);
+
+					sd_log_entry_set_sent(xEntry.ulID);
+
+					/* If HTTP Status Code is OK (200) and Content-Type is JSON */
+					if ((0 == strncmp(client_response.start_line.status_line.status_code.data, "200", strlen("200")))
+							&& (0 == strncmp(content_type_header_ptr->field_value.data, "application/json", strlen("application/json")))
+							&& (1 < client_response.message_body.len))
+					{
+						/* Parse LwHTTP Response message body as JSON */
+						if (pdTRUE != parse_thingspeak_rsp(client_response.message_body.data, client_response.message_body.len))
+						{
+							DBG_LWIP("Failed to parse JSON\r\n");
+						}
+					}
+					else
+					{
+						DBG_LWIP("Invalid response\r\n");
+					}
+				}
+				else
+				{
+					DBG_LWIP("Failed to POST\r\n");
+				}
+
+				/* Free LwHTTP Request & Response */
+				lwhttp_request_free(&client_request);
+				lwhttp_response_free(&client_response);
+			}
+			else if(xQueueReceive(getIPQueueHandle, &queueData, 0) == pdTRUE)
+			{
+				DBG_QUEUE("getIPQueueHandle\r\n");
+
+				strcpy(ip4_addr_ptr, ip4addr_ntoa((const ip4_addr_t *)&netif->ip_addr));
+
+				if(xQueueSend(setIPQueueHandle, &ip4_addr_ptr, 0) == pdTRUE)
+				{
+					DBG_QUEUE("setIPQueueHandle = %s\r\n", ip4_addr_ptr);
+				}
+			}
+			else
+#endif
+			{
+				osDelay(10);
+			}
+		}
+		break;
+		default:
+		{
+			osDelay(10);
+		}
+		break;
+		}
+	}
+	/* USER CODE END HTTP_Client_Task */
 }
 
 /**
