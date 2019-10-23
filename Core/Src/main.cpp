@@ -27,6 +27,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stm32_cli.h"
+#include "bsp_driver_esp8266.h"
 #include <stdio.h>
 #include <string.h>
 /* USER CODE END Includes */
@@ -161,6 +162,7 @@ int main(void)
 	/* USER CODE BEGIN 2 */
 
 	BSP_CLI_Init(&huart1);
+	BSP_ESP8266_Init(&huart6);
 
 	/* USER CODE END 2 */
 
